@@ -522,7 +522,8 @@ public class ExtensionLoader<T> {
                     type + ")  could not be instantiated: " + t.getMessage(), t);
         }
     }
-    
+
+    // #linzp, inject的过程中, 会对SPI类型作为参数的set方法, 自动注入.
     private T injectExtension(T instance) {
         try {
             if (objectFactory != null) {
@@ -533,6 +534,8 @@ public class ExtensionLoader<T> {
                         Class<?> pt = method.getParameterTypes()[0];
                         try {
                             String property = method.getName().length() > 3 ? method.getName().substring(3, 4).toLowerCase() + method.getName().substring(4) : "";
+                            // #linzp, 仅当pt是SPI类, 才可能有注入行为.
+                            // #linzp, 并且取的是Adaptive类
                             Object object = objectFactory.getExtension(pt, property);
                             if (object != null) {
                                 method.invoke(instance, object);
