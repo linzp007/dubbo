@@ -77,7 +77,7 @@ public class ExtensionLoader<T> {
     private static final ConcurrentMap<Class<?>, Object> EXTENSION_INSTANCES = new ConcurrentHashMap<Class<?>, Object>();
 
     // ==============================
-
+    // #linzp, 扩展接口类型
     private final Class<?> type;
 
     private final ExtensionFactory objectFactory;
@@ -510,6 +510,7 @@ public class ExtensionLoader<T> {
             }
             injectExtension(instance);
             Set<Class<?>> wrapperClasses = cachedWrapperClasses;
+            // #linzp, 如果存在包装器类, 使用包装器对实例包装之后再返回
             if (wrapperClasses != null && wrapperClasses.size() > 0) {
                 for (Class<?> wrapperClass : wrapperClasses) {
                     instance = injectExtension((T) wrapperClass.getConstructor(type).newInstance(instance));
@@ -637,6 +638,7 @@ public class ExtensionLoader<T> {
                                                         type + ", class line: " + clazz.getName() + "), class " 
                                                         + clazz.getName() + "is not subtype of interface.");
                                             }
+                                            // #linzp, 如果配置的扩展类有Adaptive注解, 需要缓存到cachedAdaptiveClass
                                             if (clazz.isAnnotationPresent(Adaptive.class)) {
                                                 if(cachedAdaptiveClass == null) {
                                                     cachedAdaptiveClass = clazz;
@@ -647,6 +649,8 @@ public class ExtensionLoader<T> {
                                                 }
                                             } else {
                                                 try {
+                                                    // #linzp, 如果扩展类的构造入参, 也是该扩展接口, 认为是包装器类
+                                                    // #linzp, 添加到包装器缓存中.
                                                     clazz.getConstructor(type);
                                                     Set<Class<?>> wrappers = cachedWrapperClasses;
                                                     if (wrappers == null) {
@@ -655,7 +659,9 @@ public class ExtensionLoader<T> {
                                                     }
                                                     wrappers.add(clazz);
                                                 } catch (NoSuchMethodException e) {
+                                                    // #linzp, 没有带参构造器
                                                     clazz.getConstructor();
+                                                    // #linzp, name 是每一行的key
                                                     if (name == null || name.length() == 0) {
                                                         name = findAnnotationName(clazz);
                                                         if (name == null || name.length() == 0) {
@@ -667,16 +673,21 @@ public class ExtensionLoader<T> {
                                                             }
                                                         }
                                                     }
+                                                    // #linzp, key可能是逗号隔开多个.
                                                     String[] names = NAME_SEPARATOR.split(name);
                                                     if (names != null && names.length > 0) {
+                                                        // #linzp, 扩展类上有Activate注解.
                                                         Activate activate = clazz.getAnnotation(Activate.class);
                                                         if (activate != null) {
+                                                            // #linzp,取第一个名称作为缓存activate的key
                                                             cachedActivates.put(names[0], activate);
                                                         }
                                                         for (String n : names) {
+                                                            // #linzp, 将类对应的扩展类名缓存到cachedNames
                                                             if (! cachedNames.containsKey(clazz)) {
                                                                 cachedNames.put(clazz, n);
                                                             }
+                                                            // #linzp, 缓存扩展名对应的类名
                                                             Class<?> c = extensionClasses.get(n);
                                                             if (c == null) {
                                                                 extensionClasses.put(n, clazz);
@@ -713,12 +724,14 @@ public class ExtensionLoader<T> {
     private String findAnnotationName(Class<?> clazz) {
         com.alibaba.dubbo.common.Extension extension = clazz.getAnnotation(com.alibaba.dubbo.common.Extension.class);
         if (extension == null) {
+            //#linzp, 取类的前面一部分.如, DubboProtocol
             String name = clazz.getSimpleName();
             if (name.endsWith(type.getSimpleName())) {
                 name = name.substring(0, name.length() - type.getSimpleName().length());
             }
             return name.toLowerCase();
         }
+        // #linzp, @Extension("impl1") 取Extension注解的值.
         return extension.value();
     }
     
@@ -732,20 +745,25 @@ public class ExtensionLoader<T> {
     }
     
     private Class<?> getAdaptiveExtensionClass() {
+        // #linzp, 记载扩展类, 如果缓存里已经存在, 不会重复加载.
         getExtensionClasses();
         if (cachedAdaptiveClass != null) {
             return cachedAdaptiveClass;
         }
+        // #linzp, 如果cachedAdaptiveClass为空, 则会创建字节码适配类
         return cachedAdaptiveClass = createAdaptiveExtensionClass();
     }
     
     private Class<?> createAdaptiveExtensionClass() {
+        // #linzp, 创建字节码适配类
+        // #linzp, 适配类的作用是根据url.getProtocol()的值extName，去ExtensionLoader. getExtension( extName)选取具体的扩展点实现。
         String code = createAdaptiveExtensionClassCode();
         ClassLoader classLoader = findClassLoader();
         com.alibaba.dubbo.common.compiler.Compiler compiler = ExtensionLoader.getExtensionLoader(com.alibaba.dubbo.common.compiler.Compiler.class).getAdaptiveExtension();
         return compiler.compile(code, classLoader);
     }
-    
+
+    // #linzp, 生成的字节码参见: http://blog.csdn.net/quhongwei_zhanqiu/article/details/41577235
     private String createAdaptiveExtensionClassCode() {
         StringBuilder codeBuidler = new StringBuilder();
         Method[] methods = type.getMethods();
@@ -757,6 +775,7 @@ public class ExtensionLoader<T> {
             }
         }
         // 完全没有Adaptive方法，则不需要生成Adaptive类
+        // #linzp, 接口方法中必须至少有一个方法打上了@Adaptive注解
         if(! hasAdaptiveAnnotation)
             throw new IllegalStateException("No adaptive method on extension " + type.getName() + ", refuse to create the adaptive class!");
         
@@ -814,6 +833,7 @@ public class ExtensionLoader<T> {
                             }
                         }
                     }
+                    // #linzp, 有@Adaptive注解的方法参数必须有URL类型参数或者有参数中存在getURL()方法
                     if(attribMethod == null) {
                         throw new IllegalStateException("fail to create adative class for interface " + type.getName()
                         		+ ": not found url parameter or url attribute in parameters of method " + method.getName());
